@@ -10,14 +10,14 @@ from pyforms.controls import ControlText, ControlLabel, ControlButton
 
 
 class Alarm(Thread):
-    def __init__(self, keyQueue: Queue,  name: str, alarmCoolDown: float, alarmThreshold: float, hotkeys: List[str]) -> None:
+    def __init__(self, keyQueue: Queue,  name: str, alarmThreshold: float, hotkeys: List[str]) -> None:
         super().__init__()
         currentTime = time.time()
         self._keyQueue = keyQueue
         self._hotkeys = {hotkey: currentTime for hotkey in hotkeys}
         self._name = name
-        self._alarmCoolDown = alarmCoolDown
         self._alarmThreshold = alarmThreshold
+        self._alarmCoolDown = 3
         self._running = True
 
     def run(self) -> None:
@@ -25,15 +25,22 @@ class Alarm(Thread):
         lastAlarm = time.time()
 
         while self._running:
-    
+
             if not self._keyQueue.empty():
                 keyHit = self._keyQueue.get(timeout=1)
 
                 if keyHit.event_type == 'up' and self._hotkeys.get(keyHit.name) is not None:
                     print(f'Hotkey hit: {keyHit.name}')
                     self._hotkeys[keyHit.name] = time.time()
-            else:
-                time.sleep(0.1)
+                elif keyHit.event_type == 'down' and keyHit.name in ('strg', 'alt', 'shift'):
+                    keyHitNext = self._keyQueue.get(timeout=1)
+                    combinedHotkey: str = keyHit.name + '+' + keyHitNext.name
+                    print(f'Hotkey hit: {combinedHotkey}')
+                    self._hotkeys[combinedHotkey] = time.time()
+                    self._keyQueue.task_done()
+
+                self._keyQueue.task_done()
+                
 
             sendAlarm: bool = True
             currentTime = time.time()
@@ -71,8 +78,12 @@ class AoEActivityTrainer(BaseWidget):
         # Definition of the forms fields
         self._text = ControlLabel('Active profiles: \n' + '\n'.join(' + ' +
                                   profile['name'] for profile in self._settings['profiles']))
+
+        self._thresholdText = ControlText('Treshold in seconds when to inform you about ideling')
         self._startbutton = ControlButton('Start')
         self._stopButton = ControlButton('Stop')
+
+        self._thresholdText.value = str(self._settings['profiles'][0]['alarmThreshold'])
 
         # Define the event that will be called when the run button is processed
         self._startbutton.value = self.__runEvent
@@ -81,6 +92,7 @@ class AoEActivityTrainer(BaseWidget):
         # Define the organization of the Form Controls
         self._formset = [
             '_text',
+            '_thresholdText',
             ('_startbutton', '_stopButton'),
         ]
 
@@ -90,22 +102,29 @@ class AoEActivityTrainer(BaseWidget):
 
         print("Starting all alarms")
         for profile in self._settings['profiles']:
+            name: str = profile['name']
+            alarmThreshold = float(self._thresholdText.value)
+            hotkeys = profile['keys']
+
             alarm: Alarm = Alarm(
-                keyQueue=self._keyQueue, name=profile['name'], alarmCoolDown=profile['alarmCoolDown'], alarmThreshold=profile['alarmThreshold'], hotkeys=profile['keys'])
+                keyQueue=self._keyQueue, name=name, alarmThreshold=alarmThreshold, hotkeys=hotkeys)
             self._alarms.append(alarm)
 
         for alarm in self._alarms:
             alarm.start()
 
         keyboard.start_recording(self._keyQueue)
+        self._stopButton.checked = True
 
     def __stopEvent(self):
-        print("Stopping all active alarms")
-        keyboard.stop_recording()
-        for alarm in self._alarms:
-            alarm.stop()
-            alarm.join()
-            del alarm
+        if len(self._alarms) != 0:
+            print("Stopping all active alarms")
+            keyboard.stop_recording()
+            for alarm in self._alarms:
+                alarm.stop()
+                alarm.join()
+                del alarm
+            self._alarms = []
 
 
 if __name__ == '__main__':
