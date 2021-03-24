@@ -1,0 +1,15 @@
+{
+    "profiles": [
+        {
+            "name": "TC & control groups",
+            "alarmCoolDown": 3.0,
+            "alarmThreshold": 1.0,
+            "keys": [
+                "h",
+                "1",
+                "2",
+                "3"
+            ]
+        }
+    ]
+}
